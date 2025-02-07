@@ -1,8 +1,17 @@
+import os
 import fitz  # PyMuPDF
 from PyPDF2 import PdfReader, PdfWriter
 from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
+
+# Carpeta donde se guardarán los fragmentos
+UPLOAD_FOLDER = "temp"
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+# Asegurar que la carpeta "temp" existe
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
 def dividir_pdf_por_palabra(archivo_pdf, palabra_clave, ajuste_superior=0, ajuste_inferior=0):
     doc = fitz.open(archivo_pdf)
@@ -37,11 +46,11 @@ def dividir_pdf_por_palabra(archivo_pdf, palabra_clave, ajuste_superior=0, ajust
 
             writer.add_page(nueva_pagina)
 
-            output_pdf = f"fragmento_p{num_pagina + 1}_{i+1}.pdf"
+            output_pdf = os.path.join(app.config["UPLOAD_FOLDER"], f"fragmento_p{num_pagina + 1}_{i+1}.pdf")
             with open(output_pdf, "wb") as f:
                 writer.write(f)
 
-            fragmentos.append(output_pdf)
+            fragmentos.append(f"fragmento_p{num_pagina + 1}_{i+1}.pdf")  # Guardamos solo el nombre
 
     return fragmentos
 
@@ -55,7 +64,7 @@ def dividir_pdf_api():
         return jsonify({"error": "No se envió ningún archivo PDF"}), 400
 
     file = request.files['file']
-    file_path = "temp.pdf"
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], "temp.pdf")
     file.save(file_path)
 
     palabra_clave = request.form.get("palabra_clave", "Leg")
@@ -71,10 +80,16 @@ def dividir_pdf_api():
 
 @app.route('/download/<filename>', methods=['GET'])
 def download_file(filename):
-    try:
-        return send_file(filename, as_attachment=True)
-    except FileNotFoundError:
+    """ Permite descargar un fragmento desde la carpeta correcta """
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+
+    print(f"🔍 Intentando descargar el archivo: {file_path}")  # Log para depuración
+
+    if not os.path.isfile(file_path):
+        print(f"❌ Archivo no encontrado: {filename}")  # Log si el archivo no existe
         return jsonify({"error": f"El archivo {filename} no existe."}), 404
+
+    return send_file(file_path, as_attachment=True)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
